@@ -1,0 +1,16 @@
+{
+  "name": "agent-board",
+  "version": "1.0.0",
+  "description": "Claude Code session monitor overlay",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "install-hooks": "node scripts/install-hooks.js"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^31.0.0"
+  },
+  "author": "",
+  "license": "MIT"
+}
