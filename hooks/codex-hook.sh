@@ -48,6 +48,27 @@ _find_terminal_pid() {
   done
 }
 
+_launch_agent_board() {
+  local app_path
+  for app_path in \
+    "/Applications/AgentBoard.app" \
+    "$HOME/Applications/AgentBoard.app" \
+    "$APP_DIR/dist/AgentBoard-darwin-arm64/AgentBoard.app"; do
+    if [ -d "$app_path" ]; then
+      open -gj "$app_path" >> /tmp/agent-board.log 2>&1
+      sleep 1
+      return
+    fi
+  done
+
+  if [ -f "$APP_DIR/node_modules/.bin/electron" ]; then
+    cd "$APP_DIR" || exit 0
+    nohup "$APP_DIR/node_modules/.bin/electron" "$APP_DIR" >> /tmp/agent-board.log 2>&1 < /dev/null &
+    disown "$!" 2>/dev/null || true
+    sleep 1
+  fi
+}
+
 TERM_INFO=$(_find_terminal_pid)
 export AGENT_BOARD_TERM_PID=$(echo "$TERM_INFO" | awk '{print $1}')
 export AGENT_BOARD_TERM_NAME=$(echo "$TERM_INFO" | awk '{print $2}')
@@ -95,12 +116,7 @@ if [ -z "$PAYLOAD" ]; then
 fi
 
 if ! curl -sf --max-time 0.5 "http://127.0.0.1:27420/ping" > /dev/null 2>&1; then
-  if [ -f "$APP_DIR/node_modules/.bin/electron" ]; then
-    cd "$APP_DIR" || exit 0
-    nohup "$APP_DIR/node_modules/.bin/electron" "$APP_DIR" >> /tmp/agent-board.log 2>&1 < /dev/null &
-    disown "$!" 2>/dev/null || true
-    sleep 1
-  fi
+  _launch_agent_board
 fi
 
 RESULT=$(curl -sf --max-time 2 \

@@ -5,7 +5,11 @@ const fs = require('fs')
 const { exec } = require('child_process')
 
 const PORT = 27420
-const SESSIONS_FILE = path.join(__dirname, 'sessions.json')
+const APP_ICON = path.join(__dirname, 'assets', 'app-icon.png')
+
+function sessionsFile() {
+  return path.join(app.getPath('userData'), 'sessions.json')
+}
 
 // --- Session state store ---
 const sessions = new Map()
@@ -18,7 +22,7 @@ function loadSessions() {
 function saveSessions() {
   const obj = {}
   for (const [id, s] of sessions) obj[id] = s
-  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(obj, null, 2))
+  fs.writeFileSync(sessionsFile(), JSON.stringify(obj, null, 2))
 }
 
 function upsertSession(id, patch) {
@@ -53,6 +57,7 @@ function createWindow() {
     skipTaskbar: true,
     hasShadow: false,
     show: false,
+    icon: APP_ICON,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -238,6 +243,11 @@ function normalizeHookEventName(name = '') {
 function focusSession(session) {
   const { terminalPid, vscodePid, cwd } = session
 
+  if (isCodexSession(session)) {
+    focusCodexThread(session)
+    return
+  }
+
   const focusByPid = (pid, fallback) => {
     const script = `tell application "System Events" to set frontmost of (first process whose unix id is ${pid}) to true`
     exec(`osascript -e '${script}'`, err => {
@@ -285,6 +295,17 @@ function focusSession(session) {
   focusTerminalApp()
 }
 
+function isCodexSession(session) {
+  return String(session.client || '').toLowerCase() === 'codex'
+}
+
+function focusCodexThread(session) {
+  const threadId = encodeURIComponent(session.id)
+  exec(`open "codex://threads/${threadId}"`, err => {
+    if (err) exec('open -a "ChatGPT"')
+  })
+}
+
 // --- IPC handlers ---
 ipcMain.on('focus-session', (_, sessionId) => {
   const session = sessions.get(sessionId)
@@ -318,6 +339,9 @@ app.dock.hide()
 app.setLoginItemSettings({ openAtLogin: true })
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin' && fs.existsSync(APP_ICON)) {
+    app.dock.setIcon(APP_ICON)
+  }
   loadSessions()
   startHttpServer()
   createWindow()
