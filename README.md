@@ -19,7 +19,7 @@ A lightweight Electron overlay that shows all your running Claude Code, Codex, a
 **Prerequisites:** Node.js 18+, macOS (arm64 or x64)
 
 ```bash
-git clone https://github.com/dongzhancai1/AgentBoard.git
+git clone https://github.com/FOkvj/AgentBoard.git
 cd AgentBoard
 npm install
 ```
