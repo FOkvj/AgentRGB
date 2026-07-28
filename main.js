@@ -2,11 +2,13 @@ const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage } = require
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
-const { exec } = require('child_process')
+const os = require('os')
+const { exec, execFile } = require('child_process')
 const { getInstallStatus, installAll } = require('./scripts/install-hooks')
 
 const PORT = 27420
 const APP_ICON = path.join(__dirname, 'assets', 'app-icon.png')
+const FOCUS_LOG_PATH = '/tmp/agent-board-focus.log'
 const SYSTEM_SOUND_FILES = {
   yellow: '/System/Library/Sounds/Bottle.aiff',
   green: '/System/Library/Sounds/Glass.aiff',
@@ -67,6 +69,7 @@ function recordRecentSession(session) {
     label: session.label,
     cwd: session.cwd,
     client: session.client,
+    sourceType: session.sourceType,
     status: session.status,
     updatedAt: Number(session.updatedAt || Date.now()),
     terminalPid: session.terminalPid,
@@ -105,14 +108,235 @@ function formatRecentSessionPath(session) {
 
 function openRecentSession(sessionId) {
   const activeSession = sessions.get(sessionId)
+  const recentSession = listRecentSessions().find(item => item.id === sessionId)
+  const targetSession = recentSession || activeSession
+  if (!targetSession) return
+
+  const client = String(targetSession.client || '').toLowerCase()
+
+  if (client === 'claude') {
+    if (activeSession && canFocusExistingClaudeHost(activeSession)) {
+      appendFocusLog(`claude recent focus-existing id=${targetSession.id} sourceType=${activeSession.sourceType || ''} terminalPid=${activeSession.terminalPid || ''} vscodePid=${activeSession.vscodePid || ''}`)
+      focusSession(activeSession)
+      return
+    }
+
+    if (getClaudeSourceType(targetSession) === 'vscode') {
+      appendFocusLog(`claude recent restore-vscode id=${targetSession.id} cwd=${targetSession.cwd || ''}`)
+      launchClaudeResumeInVSCode(targetSession)
+      return
+    }
+
+    appendFocusLog(`claude recent resume-needed id=${targetSession.id} active=${!!activeSession} status=${targetSession.status || ''}`)
+    launchClaudeResumeSession(targetSession)
+    return
+  }
+
   if (activeSession) {
     focusSession(activeSession)
     return
   }
 
-  const recentSession = listRecentSessions().find(item => item.id === sessionId)
-  if (!recentSession) return
-  focusSession(recentSession)
+  focusSession(targetSession)
+}
+
+function launchClaudeResumeSession(session) {
+  const sessionId = String(session.id || '').trim()
+  if (!sessionId) return
+
+  const cwd = String(session.cwd || '').trim() || app.getPath('home')
+  const shellCommand = buildClaudeResumeCommand(sessionId, cwd)
+  appendFocusLog(`claude resume start id=${sessionId} cwd=${cwd} exe=${resolveExecutable('claude')}`)
+
+  launchInGhostty(shellCommand, sessionId, ghosttyErr => {
+    appendFocusLog(`claude resume ghostty failed id=${sessionId} err=${ghosttyErr?.message || ghosttyErr || 'unknown'}`)
+    launchInTerminal(shellCommand, sessionId)
+  })
+}
+
+function launchClaudeResumeInVSCode(session) {
+  const sessionId = String(session.id || '').trim()
+  if (!sessionId) return
+
+  const cwd = String(session.cwd || '').trim() || app.getPath('home')
+  const escapedCwd = shellEscapeForDoubleQuotedShell(cwd)
+
+  exec(`open -a "Visual Studio Code" "${escapedCwd}"`, openErr => {
+    if (openErr) {
+      appendFocusLog(`claude vscode open failed id=${sessionId} err=${openErr.message || openErr}`)
+      launchClaudeResumeSession(session)
+      return
+    }
+
+    appendFocusLog(`claude vscode reopen ok id=${sessionId} cwd=${cwd}`)
+
+    runAppleScript([
+      'tell application "Visual Studio Code" to activate',
+    ], err => {
+      if (err) {
+        appendFocusLog(`claude vscode activate failed id=${sessionId} err=${err.message || err}`)
+      }
+    })
+  })
+}
+
+function buildClaudeResumeCommand(sessionId, cwd) {
+  const escapedCwd = shellEscapeForSingleQuotes(cwd)
+  const escapedSessionId = shellEscapeForSingleQuotes(sessionId)
+  const claudeExec = shellEscapeForSingleQuotes(resolveExecutable('claude'))
+  return `cd '${escapedCwd}' && ('${claudeExec}' --dangerously-skip-permissions --resume '${escapedSessionId}' || '${claudeExec}' --dangerously-skip-permissions --continue)`
+}
+
+function shellEscapeForSingleQuotes(input = '') {
+  return String(input).replace(/'/g, `'\\''`)
+}
+
+function shellEscapeForDoubleQuotedShell(input = '') {
+  return String(input).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function escapeForAppleScript(input = '') {
+  return String(input).replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+function launchInGhostty(command, sessionId, fallback) {
+  execFile('open', ['-na', 'Ghostty', '--args', '-e', '/bin/zsh', '-lc', command], err => {
+    if (err) {
+      if (typeof fallback === 'function') fallback(err)
+      return
+    }
+
+    appendFocusLog(`claude resume ghostty dispatched id=${sessionId}`)
+  })
+}
+
+function launchInTerminal(command, sessionId) {
+  const appleScriptCommand = escapeForAppleScript(command)
+  runAppleScript([
+    'tell application "Terminal" to activate',
+    `tell application "Terminal" to do script "${appleScriptCommand}"`,
+  ], (err, stdout, stderr) => {
+    if (err) {
+      appendFocusLog(`claude resume terminal failed id=${sessionId} err=${err.message || err} stderr=${String(stderr || '').trim()}`)
+      exec('open -a "Terminal"')
+      return
+    }
+
+    appendFocusLog(`claude resume terminal dispatched id=${sessionId} stdout=${String(stdout || '').trim()}`)
+  })
+}
+
+function runAppleScript(lines, callback) {
+  const args = []
+  for (const line of lines) {
+    args.push('-e', line)
+  }
+  execFile('osascript', args, callback)
+}
+
+function appendFocusLog(message) {
+  fs.appendFile(FOCUS_LOG_PATH, `[${new Date().toISOString()}] ${message}\n`, () => {})
+}
+
+function resolveExecutable(name) {
+  const shellResolved = resolveExecutableFromShell(name)
+  if (shellResolved) return shellResolved
+
+  const searchDirs = [
+    ...String(process.env.PATH || '').split(path.delimiter),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    path.join(app.getPath('home'), '.local', 'bin'),
+  ]
+
+  for (const dir of searchDirs) {
+    if (!dir) continue
+    const candidate = path.join(dir, name)
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      return candidate
+    } catch {}
+  }
+
+  const nvmResolved = resolveExecutableFromNvm(name)
+  if (nvmResolved) return nvmResolved
+
+  return name
+}
+
+function resolveExecutableFromShell(name) {
+  try {
+    const shell = process.env.SHELL || '/bin/zsh'
+    const result = require('child_process')
+      .execFileSync(shell, ['-lic', `command -v ${name}`], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+      .trim()
+
+    if (!result) return ''
+    fs.accessSync(result, fs.constants.X_OK)
+    return result
+  } catch {
+    return ''
+  }
+}
+
+function resolveExecutableFromNvm(name) {
+  try {
+    const binDir = path.join(os.homedir(), '.nvm', 'versions', 'node')
+    const versionDirs = fs.readdirSync(binDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory())
+      .map(entry => entry.name)
+      .sort((a, b) => b.localeCompare(a, undefined, { numeric: true, sensitivity: 'base' }))
+
+    for (const version of versionDirs) {
+      const candidate = path.join(binDir, version, 'bin', name)
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK)
+        return candidate
+      } catch {}
+    }
+  } catch {}
+
+  return ''
+}
+
+function canFocusExistingClaudeHost(session) {
+  if (!session) return false
+
+  const terminalPid = Number(session.terminalPid)
+  if (Number.isFinite(terminalPid) && terminalPid > 1 && isProcessAlive(terminalPid)) {
+    return true
+  }
+
+  const vscodePid = Number(session.vscodePid)
+  if (Number.isFinite(vscodePid) && vscodePid > 1 && isProcessAlive(vscodePid)) {
+    return true
+  }
+
+  return false
+}
+
+function getClaudeSourceType(session) {
+  if (!session || String(session.client || '').toLowerCase() !== 'claude') return ''
+  if (session.sourceType) return String(session.sourceType)
+
+  const hasVSCodePid = Number(session.vscodePid) > 1
+  const hasTerminalPid = Number(session.terminalPid) > 1
+  const termProgram = String(session.termProgram || '').toLowerCase()
+
+  if (hasVSCodePid && !hasTerminalPid) return 'vscode'
+  if (hasTerminalPid) return 'tui'
+  if (termProgram.includes('vscode') || termProgram.includes('code')) return 'vscode'
+  if (termProgram) return 'tui'
+  return 'unknown'
+}
+
+function isProcessAlive(pid) {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
 }
 
 // --- Session state store ---
@@ -298,6 +522,12 @@ function handleHookEvent(event) {
     label,
     cwd,
     client: normalizedClient,
+    sourceType: deriveSessionSourceType({
+      client: normalizedClient,
+      termProgram: term_program,
+      vscodePid: vscode_pid,
+      terminalPid: terminal_pid,
+    }),
     termProgram: term_program,
     itermSession: iterm_session,
     vscodePid: vscode_pid,
@@ -362,6 +592,21 @@ function normalizeHookEventName(name = '') {
     stop: 'Stop',
     session_end: 'Stop',
   }[name] || name
+}
+
+function deriveSessionSourceType({ client, termProgram, vscodePid, terminalPid }) {
+  const normalizedClient = String(client || '').toLowerCase()
+  if (normalizedClient !== 'claude') return ''
+
+  const hasVSCodePid = Number(vscodePid) > 1
+  const hasTerminalPid = Number(terminalPid) > 1
+  const normalizedTermProgram = String(termProgram || '').toLowerCase()
+
+  if (hasVSCodePid && !hasTerminalPid) return 'vscode'
+  if (hasTerminalPid) return 'tui'
+  if (normalizedTermProgram.includes('vscode') || normalizedTermProgram.includes('code')) return 'vscode'
+  if (normalizedTermProgram) return 'tui'
+  return 'unknown'
 }
 
 // --- Focus session window ---

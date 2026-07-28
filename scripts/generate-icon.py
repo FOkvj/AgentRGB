@@ -66,7 +66,6 @@ for x, y, color in dots:
 draw = ImageDraw.Draw(img)
 for x, y, color in dots:
     draw.ellipse((x - dot_radius, y - dot_radius, x + dot_radius, y + dot_radius), fill=color)
-    draw.ellipse((x - 30, y - 46, x + 12, y - 4), fill=(255, 255, 255, 92))
 
 img.save(PNG)
 
