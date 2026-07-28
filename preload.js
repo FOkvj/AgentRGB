@@ -1,6 +1,6 @@
 const { contextBridge, ipcRenderer } = require('electron')
 
-contextBridge.exposeInMainWorld('agentLight', {
+contextBridge.exposeInMainWorld('agentRGB', {
   getSessions: () => ipcRenderer.invoke('get-sessions'),
   onSessionsUpdate: (cb) => {
     ipcRenderer.on('sessions-update', (_, sessions) => cb(sessions))

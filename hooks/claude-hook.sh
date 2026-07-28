@@ -1,9 +1,9 @@
 #!/bin/bash
-# Claude Code hook — sends session events to AgentLight Electron app
+# Claude Code hook — sends session events to AgentRGB Electron app
 
 INPUT=$(cat)
-APP_DIR="$HOME/Documents/agent-light"
-LOG="/tmp/agent-light-hook.log"
+APP_DIR="$HOME/Documents/agent-rgb"
+LOG="/tmp/agent-rgb-hook.log"
 
 # Only process supported events
 EVENT=$(echo "$INPUT" | node -e "
@@ -42,11 +42,11 @@ _find_terminal_pid() {
 _launch_agent_light() {
   local app_path
   for app_path in \
-    "/Applications/AgentLight.app" \
-    "$HOME/Applications/AgentLight.app" \
-    "$APP_DIR/dist/AgentLight-darwin-arm64/AgentLight.app"; do
+    "/Applications/AgentRGB.app" \
+    "$HOME/Applications/AgentRGB.app" \
+    "$APP_DIR/dist/AgentRGB-darwin-arm64/AgentRGB.app"; do
     if [ -d "$app_path" ]; then
-      open -gj "$app_path" >> /tmp/agent-light.log 2>&1
+      open -gj "$app_path" >> /tmp/agent-rgb.log 2>&1
       sleep 1
       return
     fi
@@ -54,18 +54,18 @@ _launch_agent_light() {
 
   if [ -f "$APP_DIR/node_modules/.bin/electron" ]; then
     cd "$APP_DIR" || exit 0
-    nohup "$APP_DIR/node_modules/.bin/electron" "$APP_DIR" >> /tmp/agent-light.log 2>&1 < /dev/null &
+    nohup "$APP_DIR/node_modules/.bin/electron" "$APP_DIR" >> /tmp/agent-rgb.log 2>&1 < /dev/null &
     disown "$!" 2>/dev/null || true
     sleep 1
   fi
 }
 
 TERM_INFO=$(_find_terminal_pid)
-export AGENT_LIGHT_TERM_PID=$(echo "$TERM_INFO" | awk '{print $1}')
-export AGENT_LIGHT_TERM_NAME=$(echo "$TERM_INFO" | awk '{print $2}')
-export AGENT_LIGHT_TTY=$(tty 2>/dev/null || true)
+export AGENT_RGB_TERM_PID=$(echo "$TERM_INFO" | awk '{print $1}')
+export AGENT_RGB_TERM_NAME=$(echo "$TERM_INFO" | awk '{print $2}')
+export AGENT_RGB_TTY=$(tty 2>/dev/null || true)
 
-echo "[$(date '+%H:%M:%S')] terminal_pid=$AGENT_LIGHT_TERM_PID name=$AGENT_LIGHT_TERM_NAME" >> "$LOG"
+echo "[$(date '+%H:%M:%S')] terminal_pid=$AGENT_RGB_TERM_PID name=$AGENT_RGB_TERM_NAME" >> "$LOG"
 
 # Build payload
 PAYLOAD=$(echo "$INPUT" | node -e "
@@ -78,10 +78,10 @@ process.stdin.on('end', () => {
     obj.term_program  = process.env.TERM_PROGRAM  || '';
     obj.iterm_session = process.env.ITERM_SESSION_ID || '';
     obj.vscode_pid    = process.env.VSCODE_PID    || '';
-    obj.tty           = process.env.AGENT_LIGHT_TTY || '';
-    if (process.env.AGENT_LIGHT_TERM_PID) {
-      obj.terminal_pid  = parseInt(process.env.AGENT_LIGHT_TERM_PID);
-      obj.terminal_name = process.env.AGENT_LIGHT_TERM_NAME || '';
+    obj.tty           = process.env.AGENT_RGB_TTY || '';
+    if (process.env.AGENT_RGB_TERM_PID) {
+      obj.terminal_pid  = parseInt(process.env.AGENT_RGB_TERM_PID);
+      obj.terminal_name = process.env.AGENT_RGB_TERM_NAME || '';
     }
     process.stdout.write(JSON.stringify(obj));
   } catch(e) {
@@ -94,7 +94,7 @@ if [ -z "$PAYLOAD" ]; then
   PAYLOAD="$INPUT"
 fi
 
-# Wake up AgentLight if not running
+# Wake up AgentRGB if not running
 if ! curl -sf --max-time 0.5 "http://127.0.0.1:27420/ping" > /dev/null 2>&1; then
   _launch_agent_light
 fi

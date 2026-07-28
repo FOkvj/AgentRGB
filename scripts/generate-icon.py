@@ -6,7 +6,7 @@ import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 ASSETS = ROOT / 'assets'
-ICONSET = ASSETS / 'AgentLight.iconset'
+ICONSET = ASSETS / 'AgentRGB.iconset'
 PNG = ASSETS / 'app-icon.png'
 ICNS = ASSETS / 'app-icon.icns'
 SIZE = 1024

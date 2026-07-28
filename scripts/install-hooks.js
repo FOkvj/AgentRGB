@@ -5,14 +5,14 @@ const os = require('os')
 const childProcess = require('child_process')
 const crypto = require('crypto')
 
-const APP_SUPPORT_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'AgentLight')
+const APP_SUPPORT_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'AgentRGB')
 const INSTALLED_HOOKS_DIR = path.join(APP_SUPPORT_DIR, 'hooks')
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
 const CLAUDE_HOOK_SCRIPT = path.join(INSTALLED_HOOKS_DIR, 'claude-hook.sh')
 const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml')
 const CODEX_HOOK_SCRIPT = path.join(INSTALLED_HOOKS_DIR, 'codex-hook.sh')
 const CODEX_MARKETPLACE_PATH = path.join(os.homedir(), 'claude-plugins-user-marketplace')
-const CODEX_PLUGIN_NAME = 'agent-light'
+const CODEX_PLUGIN_NAME = 'agent-rgb'
 const CODEX_PLUGIN_SELECTOR = `${CODEX_PLUGIN_NAME}@user-local-official-plugins`
 const CODEX_PLUGIN_PATH = path.join(CODEX_MARKETPLACE_PATH, 'plugins', CODEX_PLUGIN_NAME)
 const CURSOR_HOME = path.join(os.homedir(), '.cursor')
@@ -85,7 +85,7 @@ function installCursorHooks() {
   for (const event of cursorEvents) {
     const entries = Array.isArray(hooksConfig.hooks[event]) ? hooksConfig.hooks[event] : []
     hooksConfig.hooks[event] = [
-      ...entries.filter(entry => !isAgentLightCursorHookEntry(entry)),
+      ...entries.filter(entry => !isAgentRGBCursorHookEntry(entry)),
       hookEntry,
     ]
   }
@@ -107,7 +107,7 @@ function installClaudeHooks() {
   for (const event of hookEvents) {
     const existingEntries = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : []
     settings.hooks[event] = [
-      ...existingEntries.filter(entry => !isAgentLightClaudeHookEntry(entry)),
+      ...existingEntries.filter(entry => !isAgentRGBClaudeHookEntry(entry)),
       hookEntry,
     ]
   }
@@ -115,7 +115,7 @@ function installClaudeHooks() {
   const validEvents = new Set(hookEvents)
   for (const event of Object.keys(settings.hooks)) {
     if (!validEvents.has(event) && Array.isArray(settings.hooks[event])) {
-      settings.hooks[event] = settings.hooks[event].filter(entry => !isAgentLightClaudeHookEntry(entry))
+      settings.hooks[event] = settings.hooks[event].filter(entry => !isAgentRGBClaudeHookEntry(entry))
       if (settings.hooks[event].length === 0) delete settings.hooks[event]
     }
   }
@@ -131,7 +131,7 @@ function installCodexHooks(options = {}) {
   } catch {}
 
   const withoutOldBlock = config.replace(
-    new RegExp(`\\n?${escapeRegExp('# >>> AgentLight Codex Hooks >>>')}[\\s\\S]*?${escapeRegExp('# <<< AgentLight Codex Hooks <<<')}\\n?`, 'g'),
+    new RegExp(`\\n?${escapeRegExp('# >>> AgentRGB Codex Hooks >>>')}[\\s\\S]*?${escapeRegExp('# <<< AgentRGB Codex Hooks <<<')}\\n?`, 'g'),
     '\n'
   ).trimEnd()
   const withoutOldDirectHooks = removeLegacyCodexHooks(withoutOldBlock)
@@ -177,8 +177,8 @@ function installCodexPluginFiles() {
   fs.writeFileSync(path.join(pluginMetaDir, 'plugin.json'), JSON.stringify({
     name: CODEX_PLUGIN_NAME,
     version: '1.0.0',
-    description: 'Event-driven AgentLight integration for Codex sessions.',
-    author: { name: 'AgentLight' },
+    description: 'Event-driven AgentRGB integration for Codex sessions.',
+    author: { name: 'AgentRGB' },
   }, null, 2))
 
   const pluginHookScript = path.join(pluginHooksDir, 'codex-hook.sh')
@@ -200,9 +200,9 @@ function installCodexPluginFiles() {
 
   const pluginEntry = {
     name: CODEX_PLUGIN_NAME,
-    description: 'Event-driven AgentLight integration for Codex sessions.',
-    author: { name: 'AgentLight' },
-    source: './plugins/agent-light',
+    description: 'Event-driven AgentRGB integration for Codex sessions.',
+    author: { name: 'AgentRGB' },
+    source: './plugins/agent-rgb',
     category: 'productivity',
   }
   const plugins = Array.isArray(marketplace.plugins) ? marketplace.plugins : []
@@ -226,7 +226,7 @@ function isClaudeHookInstalled() {
     const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
     return hookEvents.every(event => {
       const entries = Array.isArray(settings.hooks?.[event]) ? settings.hooks[event] : []
-      return entries.some(entry => entryCommands(entry).some(isAgentLightClaudeCommand))
+      return entries.some(entry => entryCommands(entry).some(isAgentRGBClaudeCommand))
     })
   } catch {
     return false
@@ -252,7 +252,7 @@ function isCursorHookInstalled() {
     const events = ['beforeSubmitPrompt', 'preToolUse', 'postToolUse', 'stop']
     return fs.existsSync(CURSOR_HOOK_SCRIPT) && events.every(event => {
       const entries = Array.isArray(hooksConfig.hooks?.[event]) ? hooksConfig.hooks[event] : []
-      return entries.some(entry => entryCommands(entry).some(isAgentLightCursorCommand))
+      return entries.some(entry => entryCommands(entry).some(isAgentRGBCursorCommand))
     })
   } catch {
     return false
@@ -276,12 +276,12 @@ function trustCodexPluginHooks() {
   fs.writeFileSync(CODEX_CONFIG_PATH, config.trimEnd() + '\n')
 }
 
-function isAgentLightClaudeHookEntry(entry) {
-  return entryCommands(entry).some(isAgentLightClaudeCommand)
+function isAgentRGBClaudeHookEntry(entry) {
+  return entryCommands(entry).some(isAgentRGBClaudeCommand)
 }
 
-function isAgentLightCursorHookEntry(entry) {
-  return entryCommands(entry).some(isAgentLightCursorCommand)
+function isAgentRGBCursorHookEntry(entry) {
+  return entryCommands(entry).some(isAgentRGBCursorCommand)
 }
 
 function entryCommands(entry) {
@@ -296,16 +296,16 @@ function entryCommands(entry) {
   return commands
 }
 
-function isAgentLightClaudeCommand(command) {
+function isAgentRGBClaudeCommand(command) {
   return command === CLAUDE_HOOK_SCRIPT ||
     command === `bash ${JSON.stringify(CLAUDE_HOOK_SCRIPT)}` ||
-    /agent[- ]?board|AgentLight/.test(command) && command.includes('claude-hook.sh')
+    /agent[- ]?board|AgentRGB/.test(command) && command.includes('claude-hook.sh')
 }
 
-function isAgentLightCursorCommand(command) {
+function isAgentRGBCursorCommand(command) {
   return command === CURSOR_HOOK_SCRIPT ||
     command === `bash ${JSON.stringify(CURSOR_HOOK_SCRIPT)}` ||
-    /agent[- ]?board|AgentLight/.test(command) && command.includes('cursor-hook.sh')
+    /agent[- ]?board|AgentRGB/.test(command) && command.includes('cursor-hook.sh')
 }
 
 function hookEventStateKey(event) {
@@ -391,7 +391,7 @@ function removeLegacyCodexHooks(config) {
       index += 1
     }
 
-    if (!block.join('\n').match(/(agent[- ]?board|AgentLight)[\s\S]*codex-hook\.sh/)) {
+    if (!block.join('\n').match(/(agent[- ]?board|AgentRGB)[\s\S]*codex-hook\.sh/)) {
       nextLines.push(...block)
     }
   }

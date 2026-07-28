@@ -15,6 +15,7 @@ const SYSTEM_SOUND_FILES = {
 
 let lastHookInstallResult = null
 let tray = null
+const MAX_RECENT_SESSIONS = 20
 
 function getBooleanSetting(settings, key, defaultValue) {
   if (typeof settings[key] === 'boolean') return settings[key]
@@ -49,6 +50,71 @@ function patchSettings(patch) {
   return next
 }
 
+function listRecentSessions() {
+  const settings = readSettings()
+  const recents = Array.isArray(settings.recentSessions) ? settings.recentSessions : []
+  return recents
+    .filter(item => item && typeof item.id === 'string')
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+}
+
+function recordRecentSession(session) {
+  if (!session || !session.id) return
+  const settings = readSettings()
+  const recents = Array.isArray(settings.recentSessions) ? settings.recentSessions : []
+  const nextSession = {
+    id: session.id,
+    label: session.label,
+    cwd: session.cwd,
+    client: session.client,
+    status: session.status,
+    updatedAt: Number(session.updatedAt || Date.now()),
+    terminalPid: session.terminalPid,
+    terminalName: session.terminalName,
+    termProgram: session.termProgram,
+    vscodePid: session.vscodePid,
+    cursorPid: session.cursorPid,
+    cursorName: session.cursorName,
+  }
+
+  const deduped = [nextSession, ...recents.filter(item => item && item.id !== session.id)]
+  settings.recentSessions = deduped
+    .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+    .slice(0, MAX_RECENT_SESSIONS)
+
+  writeSettings(settings)
+}
+
+function clientName(client = '') {
+  const normalized = String(client || '').toLowerCase()
+  if (normalized === 'codex') return 'Codex'
+  if (normalized === 'cursor') return 'Cursor'
+  if (normalized === 'claude') return 'Claude'
+  return normalized ? normalized[0].toUpperCase() + normalized.slice(1) : 'Unknown'
+}
+
+function formatRecentSessionLabel(session) {
+  const prefix = `[${clientName(session.client)}]`
+  const name = session.label || (session.cwd ? path.basename(session.cwd) : String(session.id).slice(0, 8))
+  return `${prefix} ${name}`
+}
+
+function formatRecentSessionPath(session) {
+  return session.cwd || 'Path unavailable'
+}
+
+function openRecentSession(sessionId) {
+  const activeSession = sessions.get(sessionId)
+  if (activeSession) {
+    focusSession(activeSession)
+    return
+  }
+
+  const recentSession = listRecentSessions().find(item => item.id === sessionId)
+  if (!recentSession) return
+  focusSession(recentSession)
+}
+
 // --- Session state store ---
 const sessions = new Map()
 
@@ -65,15 +131,19 @@ function saveSessions() {
 
 function upsertSession(id, patch) {
   const existing = sessions.get(id) || {}
-  sessions.set(id, { ...existing, id, ...patch })
+  const next = { ...existing, id, ...patch }
+  sessions.set(id, next)
+  recordRecentSession(next)
   saveSessions()
   broadcastSessions()
+  if (app.isReady()) buildApplicationMenu()
 }
 
 function removeSession(id) {
   sessions.delete(id)
   saveSessions()
   broadcastSessions()
+  if (app.isReady()) buildApplicationMenu()
 }
 
 // --- BrowserWindow ---
@@ -183,9 +253,9 @@ function startHttpServer() {
       if (!win) { res.writeHead(503); res.end('no window'); return }
       win.webContents.capturePage().then(img => {
         const png = img.toPNG()
-        fs.writeFileSync('/tmp/agent-light-render.png', png)
+        fs.writeFileSync('/tmp/agent-rgb-render.png', png)
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ saved: '/tmp/agent-light-render.png', bytes: png.length, bounds: win.getBounds() }))
+        res.end(JSON.stringify({ saved: '/tmp/agent-rgb-render.png', bytes: png.length, bounds: win.getBounds() }))
       }).catch(e => { res.writeHead(500); res.end(e.message) })
       return
     }
@@ -222,11 +292,12 @@ function handleHookEvent(event) {
 
   const eventName = normalizeHookEventName(hook_event_name || hook_event?.event_type)
   const label = event_label || (cwd ? path.basename(cwd) : session_id.slice(0, 8))
+  const normalizedClient = client || 'claude'
 
   const sessionPatch = {
     label,
     cwd,
-    client,
+    client: normalizedClient,
     termProgram: term_program,
     itermSession: iterm_session,
     vscodePid: vscode_pid,
@@ -370,7 +441,7 @@ function focusCodexThread(session) {
 }
 
 function focusCursorWindow(session) {
-  const focusLog = '/tmp/agent-light-focus.log'
+  const focusLog = '/tmp/agent-rgb-focus.log'
   const log = message => fs.appendFile(focusLog, `[${new Date().toISOString()}] ${message}\n`, () => {})
 
   const activateCursorApp = (fallback = () => {}) => {
@@ -470,6 +541,23 @@ function buildControlMenuItems() {
       .join('，')
     : '首次启动会自动安装'
 
+  const recentSessions = listRecentSessions().slice(0, 8)
+  const recentItems = recentSessions.length > 0
+    ? recentSessions.map(session => ({
+      label: formatRecentSessionLabel(session),
+      submenu: [
+        {
+          label: '打开该会话',
+          click: () => openRecentSession(session.id),
+        },
+        {
+          label: `路径：${formatRecentSessionPath(session)}`,
+          enabled: false,
+        },
+      ],
+    }))
+    : [{ label: '暂无会话', enabled: false }]
+
   return [
     {
       label: '开机自启',
@@ -499,6 +587,10 @@ function buildControlMenuItems() {
         { label: `Cursor ${hookStatus.cursor ? '✓ Hook 已安装' : 'Hook 未安装'}`, enabled: false },
       ],
     },
+    {
+      label: '最近会话（按操作时间）',
+      submenu: recentItems,
+    },
     { label: `Hook 状态：${hookSummary}`, enabled: false },
     {
       label: '重新安装 Hooks',
@@ -507,7 +599,7 @@ function buildControlMenuItems() {
       },
     },
     { type: 'separator' },
-    { label: '退出 AgentLight', role: 'quit' },
+    { label: '退出 AgentRGB', role: 'quit' },
   ]
 }
 
@@ -515,7 +607,7 @@ function ensureTrayMenu() {
   if (!tray) {
     const trayIcon = nativeImage.createFromPath(APP_ICON).resize({ width: 18, height: 18 })
     tray = new Tray(trayIcon)
-    tray.setToolTip('AgentLight')
+    tray.setToolTip('AgentRGB')
   }
 
   tray.setContextMenu(Menu.buildFromTemplate(buildControlMenuItems()))
@@ -526,7 +618,7 @@ function buildApplicationMenu() {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
-      label: 'AgentLight',
+      label: 'AgentRGB',
       submenu: controlItems,
     },
   ]))

@@ -1,7 +1,7 @@
 {
-  "name": "agent-light",
+  "name": "agent-rgb",
   "version": "1.0.0",
-  "productName": "AgentLight",
+  "productName": "AgentRGB",
   "description": "Claude Code session monitor overlay",
   "main": "main.js",
   "scripts": {

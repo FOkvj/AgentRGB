@@ -10,7 +10,20 @@ let expandTimer = null
 let autoCollapseTimer = null
 
 function playStatusSound(kind) {
-  window.agentLight.playSystemSound(kind)
+  window.agentRGB.playSystemSound(kind)
+}
+
+function sessionTooltip(session) {
+  const client = String(session.client || 'claude').toLowerCase()
+  const clientName = client === 'codex'
+    ? 'Codex'
+    : client === 'cursor'
+      ? 'Cursor'
+      : 'Claude'
+
+  const name = session.label || session.id.slice(0, 8)
+  const absolutePath = session.cwd || 'Path unavailable'
+  return `[${clientName}] ${name}\n${absolutePath}`
 }
 
 // --- Render sessions ---
@@ -40,7 +53,7 @@ function render(sessions) {
     const pill = document.createElement('div')
     pill.className = `session-pill ${s.status}`
     pill.dataset.id = s.id
-    pill.title = s.cwd || s.id
+    pill.title = sessionTooltip(s)
 
     const dot = document.createElement('span')
     dot.className = 'dot'
@@ -61,12 +74,12 @@ function render(sessions) {
     pill.appendChild(closeBtn)
 
     pill.addEventListener('click', () => {
-      window.agentLight.focusSession(s.id)
+      window.agentRGB.focusSession(s.id)
     })
 
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation()
-      window.agentLight.dismissSession(s.id)
+      window.agentRGB.dismissSession(s.id)
     })
 
     container.appendChild(pill)
@@ -148,7 +161,7 @@ function adjustWidth(count) {
 function positionBar(width, height) {
   const screenW = window.screen.width
   const x = Math.round((screenW - width) / 2)
-  window.agentLight.reposition({ x, y: 0, width, height })
+  window.agentRGB.reposition({ x, y: 0, width, height })
 }
 
 // --- Collapse / expand (silky smooth) ---
@@ -165,7 +178,7 @@ function collapse() {
     bar.classList.remove('minimizing')
     bar.classList.add('collapsed', 'collapsed-pop')
     const screenW = window.screen.width
-    window.agentLight.reposition({ x: Math.round((screenW - 164) / 2), y: 0, width: 164, height: 10 })
+    window.agentRGB.reposition({ x: Math.round((screenW - 164) / 2), y: 0, width: 164, height: 10 })
     expandTimer = setTimeout(() => {
       bar.classList.remove('collapsed-pop')
     }, 320)
@@ -178,7 +191,7 @@ function expand() {
   collapsed = false
   toggleBtn.textContent = '▲'
   adjustWidth(currentSessions.length)
-  window.agentLight.resizeWindow(44)
+  window.agentRGB.resizeWindow(44)
   bar.classList.remove('collapsed', 'minimizing', 'collapsed-pop')
   bar.classList.add('expanding')
   expandTimer = setTimeout(() => {
@@ -207,10 +220,10 @@ container.addEventListener('wheel', (e) => {
 
 // --- Init ---
 async function init() {
-  const sessions = await window.agentLight.getSessions()
+  const sessions = await window.agentRGB.getSessions()
   render(sessions)
 
-  window.agentLight.onSessionsUpdate((sessions) => {
+  window.agentRGB.onSessionsUpdate((sessions) => {
     render(sessions)
   })
 }

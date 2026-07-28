@@ -1,9 +1,9 @@
 #!/bin/bash
-# Cursor hook — sends session events to AgentLight Electron app
+# Cursor hook — sends session events to AgentRGB Electron app
 
 INPUT=$(cat)
-LOG="/tmp/agent-light-cursor-hook.log"
-RAW_LOG="/tmp/agent-light-cursor-hook-raw.log"
+LOG="/tmp/agent-rgb-cursor-hook.log"
+RAW_LOG="/tmp/agent-rgb-cursor-hook-raw.log"
 
 printf '%s\n' "$INPUT" >> "$RAW_LOG"
 
@@ -76,11 +76,11 @@ _find_cursor_pid() {
 _launch_agent_light() {
   local app_path
   for app_path in \
-    "/Applications/AgentLight.app" \
-    "$HOME/Applications/AgentLight.app" \
-    "$HOME/Documents/agent-light/dist/AgentLight.app"; do
+    "/Applications/AgentRGB.app" \
+    "$HOME/Applications/AgentRGB.app" \
+    "$HOME/Documents/agent-rgb/dist/AgentRGB.app"; do
     if [ -d "$app_path" ]; then
-      open -gj "$app_path" >> /tmp/agent-light.log 2>&1
+      open -gj "$app_path" >> /tmp/agent-rgb.log 2>&1
       sleep 1
       return
     fi
@@ -88,8 +88,8 @@ _launch_agent_light() {
 }
 
 CURSOR_INFO=$(_find_cursor_pid)
-export AGENT_LIGHT_CURSOR_PID=$(echo "$CURSOR_INFO" | awk '{print $1}')
-export AGENT_LIGHT_CURSOR_NAME=$(echo "$CURSOR_INFO" | awk '{print $2}')
+export AGENT_RGB_CURSOR_PID=$(echo "$CURSOR_INFO" | awk '{print $1}')
+export AGENT_RGB_CURSOR_NAME=$(echo "$CURSOR_INFO" | awk '{print $2}')
 
 PAYLOAD=$(echo "$INPUT" | node -e "
 const path = require('path');
@@ -106,7 +106,7 @@ process.stdin.on('end', () => {
       obj.eventName ||
       obj.event ||
       obj.type ||
-      process.env.AGENT_LIGHT_EVENT || ''
+      process.env.AGENT_RGB_EVENT || ''
     );
     const normalized = rawEvent.replace(/[A-Z]/g, m => '_' + m.toLowerCase()).replace(/^_/, '');
     const eventMap = {
@@ -173,9 +173,9 @@ process.stdin.on('end', () => {
     obj.tool_name = obj.tool_name || toolName;
     obj.client = obj.client || 'cursor';
     obj.term_program = process.env.TERM_PROGRAM || obj.term_program || '';
-    if (process.env.AGENT_LIGHT_CURSOR_PID) {
-      obj.cursor_pid = parseInt(process.env.AGENT_LIGHT_CURSOR_PID);
-      obj.cursor_name = process.env.AGENT_LIGHT_CURSOR_NAME || '';
+    if (process.env.AGENT_RGB_CURSOR_PID) {
+      obj.cursor_pid = parseInt(process.env.AGENT_RGB_CURSOR_PID);
+      obj.cursor_name = process.env.AGENT_RGB_CURSOR_NAME || '';
     }
     process.stdout.write(JSON.stringify(obj));
   } catch {
