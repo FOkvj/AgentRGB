@@ -183,9 +183,9 @@ function startHttpServer() {
       if (!win) { res.writeHead(503); res.end('no window'); return }
       win.webContents.capturePage().then(img => {
         const png = img.toPNG()
-        fs.writeFileSync('/tmp/agent-board-render.png', png)
+        fs.writeFileSync('/tmp/agent-light-render.png', png)
         res.writeHead(200, { 'Content-Type': 'application/json' })
-        res.end(JSON.stringify({ saved: '/tmp/agent-board-render.png', bytes: png.length, bounds: win.getBounds() }))
+        res.end(JSON.stringify({ saved: '/tmp/agent-light-render.png', bytes: png.length, bounds: win.getBounds() }))
       }).catch(e => { res.writeHead(500); res.end(e.message) })
       return
     }
@@ -253,22 +253,28 @@ function handleHookEvent(event) {
   }
 
   if (eventName === 'PreToolUse') {
-    if (tool_name === 'AskUserQuestion') {
+    if (isWaitingTool(tool_name)) {
       upsertSession(session_id, { ...sessionPatch, status: 'waiting' })
     } else {
-      const existing = sessions.get(session_id)
-      if (existing && existing.status !== 'waiting') {
-        upsertSession(session_id, { ...sessionPatch, status: 'running' })
-      }
+      upsertSession(session_id, { ...sessionPatch, status: 'running' })
     }
     return
   }
 
   if (eventName === 'PostToolUse') {
-    const existing = sessions.get(session_id)
-    if (existing && existing.status === 'waiting') return
     upsertSession(session_id, { ...sessionPatch, status: 'running' })
   }
+}
+
+function isWaitingTool(toolName = '') {
+  const name = String(toolName || '').toLowerCase()
+  return [
+    'askuserquestion',
+    'ask_user_question',
+    'elicitation',
+    'askquestion',
+    'ask_question',
+  ].some(keyword => name.includes(keyword))
 }
 
 function normalizeHookEventName(name = '') {
@@ -364,7 +370,7 @@ function focusCodexThread(session) {
 }
 
 function focusCursorWindow(session) {
-  const focusLog = '/tmp/agent-board-focus.log'
+  const focusLog = '/tmp/agent-light-focus.log'
   const log = message => fs.appendFile(focusLog, `[${new Date().toISOString()}] ${message}\n`, () => {})
 
   const activateCursorApp = (fallback = () => {}) => {
@@ -501,7 +507,7 @@ function buildControlMenuItems() {
       },
     },
     { type: 'separator' },
-    { label: '退出 AgentBoard', role: 'quit' },
+    { label: '退出 AgentLight', role: 'quit' },
   ]
 }
 
@@ -509,7 +515,7 @@ function ensureTrayMenu() {
   if (!tray) {
     const trayIcon = nativeImage.createFromPath(APP_ICON).resize({ width: 18, height: 18 })
     tray = new Tray(trayIcon)
-    tray.setToolTip('AgentBoard')
+    tray.setToolTip('AgentLight')
   }
 
   tray.setContextMenu(Menu.buildFromTemplate(buildControlMenuItems()))
@@ -520,7 +526,7 @@ function buildApplicationMenu() {
 
   Menu.setApplicationMenu(Menu.buildFromTemplate([
     {
-      label: 'AgentBoard',
+      label: 'AgentLight',
       submenu: controlItems,
     },
   ]))

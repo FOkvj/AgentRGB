@@ -1,7 +1,7 @@
 {
-  "name": "agent-board",
+  "name": "agent-light",
   "version": "1.0.0",
-  "productName": "AgentBoard",
+  "productName": "AgentLight",
   "description": "Claude Code session monitor overlay",
   "main": "main.js",
   "scripts": {

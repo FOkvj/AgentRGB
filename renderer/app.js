@@ -10,7 +10,7 @@ let expandTimer = null
 let autoCollapseTimer = null
 
 function playStatusSound(kind) {
-  window.agentBoard.playSystemSound(kind)
+  window.agentLight.playSystemSound(kind)
 }
 
 // --- Render sessions ---
@@ -61,12 +61,12 @@ function render(sessions) {
     pill.appendChild(closeBtn)
 
     pill.addEventListener('click', () => {
-      window.agentBoard.focusSession(s.id)
+      window.agentLight.focusSession(s.id)
     })
 
     closeBtn.addEventListener('click', (e) => {
       e.stopPropagation()
-      window.agentBoard.dismissSession(s.id)
+      window.agentLight.dismissSession(s.id)
     })
 
     container.appendChild(pill)
@@ -148,7 +148,7 @@ function adjustWidth(count) {
 function positionBar(width, height) {
   const screenW = window.screen.width
   const x = Math.round((screenW - width) / 2)
-  window.agentBoard.reposition({ x, y: 0, width, height })
+  window.agentLight.reposition({ x, y: 0, width, height })
 }
 
 // --- Collapse / expand (silky smooth) ---
@@ -165,7 +165,7 @@ function collapse() {
     bar.classList.remove('minimizing')
     bar.classList.add('collapsed', 'collapsed-pop')
     const screenW = window.screen.width
-    window.agentBoard.reposition({ x: Math.round((screenW - 164) / 2), y: 0, width: 164, height: 10 })
+    window.agentLight.reposition({ x: Math.round((screenW - 164) / 2), y: 0, width: 164, height: 10 })
     expandTimer = setTimeout(() => {
       bar.classList.remove('collapsed-pop')
     }, 320)
@@ -178,7 +178,7 @@ function expand() {
   collapsed = false
   toggleBtn.textContent = '▲'
   adjustWidth(currentSessions.length)
-  window.agentBoard.resizeWindow(44)
+  window.agentLight.resizeWindow(44)
   bar.classList.remove('collapsed', 'minimizing', 'collapsed-pop')
   bar.classList.add('expanding')
   expandTimer = setTimeout(() => {
@@ -207,10 +207,10 @@ container.addEventListener('wheel', (e) => {
 
 // --- Init ---
 async function init() {
-  const sessions = await window.agentBoard.getSessions()
+  const sessions = await window.agentLight.getSessions()
   render(sessions)
 
-  window.agentBoard.onSessionsUpdate((sessions) => {
+  window.agentLight.onSessionsUpdate((sessions) => {
     render(sessions)
   })
 }

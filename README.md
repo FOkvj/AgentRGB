@@ -1,8 +1,8 @@
-# AgentBoard
+# AgentLight
 
 A lightweight Electron overlay that shows all your running Claude Code, Codex, and Cursor AI agent sessions in a sleek top-of-screen status bar.
 
-![AgentBoard screenshot](assets/app-icon.png)
+![AgentLight screenshot](assets/app-icon.png)
 
 ## Features
 
@@ -19,12 +19,12 @@ A lightweight Electron overlay that shows all your running Claude Code, Codex, a
 **Prerequisites:** Node.js 18+, macOS (arm64 or x64)
 
 ```bash
-git clone https://github.com/FOkvj/AgentBoard.git
-cd AgentBoard
+git clone https://github.com/FOkvj/AgentLight.git
+cd AgentLight
 npm install
 ```
 
-### Install hooks (connects AI clients to AgentBoard)
+### Install hooks (connects AI clients to AgentLight)
 
 ```bash
 npm run install-hooks
@@ -48,13 +48,13 @@ The `.app` bundle will be in `dist/`.
 
 ## How it works
 
-Each AI client (Claude Code, Codex, Cursor) fires lifecycle hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`). The hooks in `hooks/` forward these events over HTTP to AgentBoard's local server (port 27420), which updates the overlay in real time.
+Each AI client (Claude Code, Codex, Cursor) fires lifecycle hook events (`UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `Stop`). The hooks in `hooks/` forward these events over HTTP to AgentLight's local server (port 27420), which updates the overlay in real time.
 
 ```
 AI Client → hook script → POST /event → Electron app → overlay UI
 ```
 
-AgentBoard auto-launches when the first hook fires if it's not already running.
+AgentLight auto-launches when the first hook fires if it's not already running.
 
 ## Project structure
 

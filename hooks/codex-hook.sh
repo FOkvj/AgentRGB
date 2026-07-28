@@ -1,9 +1,9 @@
 #!/bin/bash
-# Codex hook — sends session events to AgentBoard Electron app
+# Codex hook — sends session events to AgentLight Electron app
 
 INPUT=$(cat)
-APP_DIR="$HOME/Documents/agent-board"
-LOG="/tmp/agent-board-codex-hook.log"
+APP_DIR="$HOME/Documents/agent-light"
+LOG="/tmp/agent-light-codex-hook.log"
 
 EVENT=$(echo "$INPUT" | node -e "
 process.stdin.resume();
@@ -48,14 +48,14 @@ _find_terminal_pid() {
   done
 }
 
-_launch_agent_board() {
+_launch_agent_light() {
   local app_path
   for app_path in \
-    "/Applications/AgentBoard.app" \
-    "$HOME/Applications/AgentBoard.app" \
-    "$APP_DIR/dist/AgentBoard-darwin-arm64/AgentBoard.app"; do
+    "/Applications/AgentLight.app" \
+    "$HOME/Applications/AgentLight.app" \
+    "$APP_DIR/dist/AgentLight-darwin-arm64/AgentLight.app"; do
     if [ -d "$app_path" ]; then
-      open -gj "$app_path" >> /tmp/agent-board.log 2>&1
+      open -gj "$app_path" >> /tmp/agent-light.log 2>&1
       sleep 1
       return
     fi
@@ -63,17 +63,17 @@ _launch_agent_board() {
 
   if [ -f "$APP_DIR/node_modules/.bin/electron" ]; then
     cd "$APP_DIR" || exit 0
-    nohup "$APP_DIR/node_modules/.bin/electron" "$APP_DIR" >> /tmp/agent-board.log 2>&1 < /dev/null &
+    nohup "$APP_DIR/node_modules/.bin/electron" "$APP_DIR" >> /tmp/agent-light.log 2>&1 < /dev/null &
     disown "$!" 2>/dev/null || true
     sleep 1
   fi
 }
 
 TERM_INFO=$(_find_terminal_pid)
-export AGENT_BOARD_TERM_PID=$(echo "$TERM_INFO" | awk '{print $1}')
-export AGENT_BOARD_TERM_NAME=$(echo "$TERM_INFO" | awk '{print $2}')
-export AGENT_BOARD_TTY=$(tty 2>/dev/null || true)
-export AGENT_BOARD_EVENT="$EVENT"
+export AGENT_LIGHT_TERM_PID=$(echo "$TERM_INFO" | awk '{print $1}')
+export AGENT_LIGHT_TERM_NAME=$(echo "$TERM_INFO" | awk '{print $2}')
+export AGENT_LIGHT_TTY=$(tty 2>/dev/null || true)
+export AGENT_LIGHT_EVENT="$EVENT"
 
 PAYLOAD=$(echo "$INPUT" | node -e "
 process.stdin.resume();
@@ -82,7 +82,7 @@ process.stdin.on('data', c => d += c);
 process.stdin.on('end', () => {
   try {
     const obj = JSON.parse(d);
-    const rawEvent = obj.hook_event_name || obj.hookEventName || obj.event_name || obj.eventName || obj.hook_event?.event_type || obj.hookEvent?.eventType || process.env.AGENT_BOARD_EVENT || '';
+    const rawEvent = obj.hook_event_name || obj.hookEventName || obj.event_name || obj.eventName || obj.hook_event?.event_type || obj.hookEvent?.eventType || process.env.AGENT_LIGHT_EVENT || '';
     const eventMap = {
       user_prompt_submit: 'UserPromptSubmit',
       pre_tool_use: 'PreToolUse',
@@ -99,10 +99,10 @@ process.stdin.on('end', () => {
     obj.term_program  = process.env.TERM_PROGRAM  || '';
     obj.iterm_session = process.env.ITERM_SESSION_ID || '';
     obj.vscode_pid    = process.env.VSCODE_PID    || '';
-    obj.tty           = process.env.AGENT_BOARD_TTY || '';
-    if (process.env.AGENT_BOARD_TERM_PID) {
-      obj.terminal_pid  = parseInt(process.env.AGENT_BOARD_TERM_PID);
-      obj.terminal_name = process.env.AGENT_BOARD_TERM_NAME || '';
+    obj.tty           = process.env.AGENT_LIGHT_TTY || '';
+    if (process.env.AGENT_LIGHT_TERM_PID) {
+      obj.terminal_pid  = parseInt(process.env.AGENT_LIGHT_TERM_PID);
+      obj.terminal_name = process.env.AGENT_LIGHT_TERM_NAME || '';
     }
     process.stdout.write(JSON.stringify(obj));
   } catch(e) {
@@ -116,7 +116,7 @@ if [ -z "$PAYLOAD" ]; then
 fi
 
 if ! curl -sf --max-time 0.5 "http://127.0.0.1:27420/ping" > /dev/null 2>&1; then
-  _launch_agent_board
+  _launch_agent_light
 fi
 
 RESULT=$(curl -sf --max-time 2 \

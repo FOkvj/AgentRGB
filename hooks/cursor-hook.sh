@@ -1,9 +1,9 @@
 #!/bin/bash
-# Cursor hook — sends session events to AgentBoard Electron app
+# Cursor hook — sends session events to AgentLight Electron app
 
 INPUT=$(cat)
-LOG="/tmp/agent-board-cursor-hook.log"
-RAW_LOG="/tmp/agent-board-cursor-hook-raw.log"
+LOG="/tmp/agent-light-cursor-hook.log"
+RAW_LOG="/tmp/agent-light-cursor-hook-raw.log"
 
 printf '%s\n' "$INPUT" >> "$RAW_LOG"
 
@@ -73,14 +73,14 @@ _find_cursor_pid() {
   fi
 }
 
-_launch_agent_board() {
+_launch_agent_light() {
   local app_path
   for app_path in \
-    "/Applications/AgentBoard.app" \
-    "$HOME/Applications/AgentBoard.app" \
-    "$HOME/Documents/agent-board/dist/AgentBoard.app"; do
+    "/Applications/AgentLight.app" \
+    "$HOME/Applications/AgentLight.app" \
+    "$HOME/Documents/agent-light/dist/AgentLight.app"; do
     if [ -d "$app_path" ]; then
-      open -gj "$app_path" >> /tmp/agent-board.log 2>&1
+      open -gj "$app_path" >> /tmp/agent-light.log 2>&1
       sleep 1
       return
     fi
@@ -88,8 +88,8 @@ _launch_agent_board() {
 }
 
 CURSOR_INFO=$(_find_cursor_pid)
-export AGENT_BOARD_CURSOR_PID=$(echo "$CURSOR_INFO" | awk '{print $1}')
-export AGENT_BOARD_CURSOR_NAME=$(echo "$CURSOR_INFO" | awk '{print $2}')
+export AGENT_LIGHT_CURSOR_PID=$(echo "$CURSOR_INFO" | awk '{print $1}')
+export AGENT_LIGHT_CURSOR_NAME=$(echo "$CURSOR_INFO" | awk '{print $2}')
 
 PAYLOAD=$(echo "$INPUT" | node -e "
 const path = require('path');
@@ -106,7 +106,7 @@ process.stdin.on('end', () => {
       obj.eventName ||
       obj.event ||
       obj.type ||
-      process.env.AGENT_BOARD_EVENT || ''
+      process.env.AGENT_LIGHT_EVENT || ''
     );
     const normalized = rawEvent.replace(/[A-Z]/g, m => '_' + m.toLowerCase()).replace(/^_/, '');
     const eventMap = {
@@ -173,9 +173,9 @@ process.stdin.on('end', () => {
     obj.tool_name = obj.tool_name || toolName;
     obj.client = obj.client || 'cursor';
     obj.term_program = process.env.TERM_PROGRAM || obj.term_program || '';
-    if (process.env.AGENT_BOARD_CURSOR_PID) {
-      obj.cursor_pid = parseInt(process.env.AGENT_BOARD_CURSOR_PID);
-      obj.cursor_name = process.env.AGENT_BOARD_CURSOR_NAME || '';
+    if (process.env.AGENT_LIGHT_CURSOR_PID) {
+      obj.cursor_pid = parseInt(process.env.AGENT_LIGHT_CURSOR_PID);
+      obj.cursor_name = process.env.AGENT_LIGHT_CURSOR_NAME || '';
     }
     process.stdout.write(JSON.stringify(obj));
   } catch {
@@ -189,7 +189,7 @@ if [ -z "$PAYLOAD" ]; then
 fi
 
 if ! curl -sf --max-time 0.5 "http://127.0.0.1:27420/ping" > /dev/null 2>&1; then
-  _launch_agent_board
+  _launch_agent_light
 fi
 
 RESULT=$(curl -sf --max-time 2 \
