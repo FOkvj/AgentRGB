@@ -1,14 +1,52 @@
-const { app, BrowserWindow, ipcMain, screen } = require('electron')
+const { app, BrowserWindow, ipcMain, screen, Menu, Tray, nativeImage } = require('electron')
 const http = require('http')
 const path = require('path')
 const fs = require('fs')
 const { exec } = require('child_process')
+const { getInstallStatus, installAll } = require('./scripts/install-hooks')
 
 const PORT = 27420
 const APP_ICON = path.join(__dirname, 'assets', 'app-icon.png')
+const SYSTEM_SOUND_FILES = {
+  yellow: '/System/Library/Sounds/Bottle.aiff',
+  green: '/System/Library/Sounds/Glass.aiff',
+  red: '/System/Library/Sounds/Basso.aiff',
+}
+
+let lastHookInstallResult = null
+let tray = null
+
+function getBooleanSetting(settings, key, defaultValue) {
+  if (typeof settings[key] === 'boolean') return settings[key]
+  return defaultValue
+}
 
 function sessionsFile() {
   return path.join(app.getPath('userData'), 'sessions.json')
+}
+
+function settingsFile() {
+  return path.join(app.getPath('userData'), 'settings.json')
+}
+
+function readSettings() {
+  try {
+    return JSON.parse(fs.readFileSync(settingsFile(), 'utf8'))
+  } catch {
+    return {}
+  }
+}
+
+function writeSettings(settings) {
+  fs.mkdirSync(path.dirname(settingsFile()), { recursive: true })
+  fs.writeFileSync(settingsFile(), JSON.stringify(settings, null, 2))
+}
+
+function patchSettings(patch) {
+  const settings = readSettings()
+  const next = { ...settings, ...patch }
+  writeSettings(next)
+  return next
 }
 
 // --- Session state store ---
@@ -176,6 +214,8 @@ function handleHookEvent(event) {
     tty,
     terminal_pid,
     terminal_name,
+    cursor_pid,
+    cursor_name,
   } = event
 
   if (!session_id) return
@@ -193,6 +233,8 @@ function handleHookEvent(event) {
     tty,
     terminalPid: terminal_pid,
     terminalName: terminal_name,
+    cursorPid: cursor_pid,
+    cursorName: cursor_name,
     updatedAt: Date.now(),
   }
 
@@ -231,8 +273,14 @@ function handleHookEvent(event) {
 
 function normalizeHookEventName(name = '') {
   return {
-    user_prompt_submit: 'UserPromptSubmit',
+    before_submit_prompt: 'UserPromptSubmit',
     pre_tool_use: 'PreToolUse',
+    post_tool_use_failure: 'PostToolUse',
+    before_shell_execution: 'PreToolUse',
+    after_shell_execution: 'PostToolUse',
+    before_mcp_execution: 'PreToolUse',
+    after_mcp_execution: 'PostToolUse',
+    user_prompt_submit: 'UserPromptSubmit',
     post_tool_use: 'PostToolUse',
     stop: 'Stop',
     session_end: 'Stop',
@@ -245,6 +293,11 @@ function focusSession(session) {
 
   if (isCodexSession(session)) {
     focusCodexThread(session)
+    return
+  }
+
+  if (isCursorSession(session)) {
+    focusCursorWindow(session)
     return
   }
 
@@ -299,11 +352,67 @@ function isCodexSession(session) {
   return String(session.client || '').toLowerCase() === 'codex'
 }
 
+function isCursorSession(session) {
+  return String(session.client || '').toLowerCase() === 'cursor'
+}
+
 function focusCodexThread(session) {
   const threadId = encodeURIComponent(session.id)
   exec(`open "codex://threads/${threadId}"`, err => {
     if (err) exec('open -a "ChatGPT"')
   })
+}
+
+function focusCursorWindow(session) {
+  const focusLog = '/tmp/agent-board-focus.log'
+  const log = message => fs.appendFile(focusLog, `[${new Date().toISOString()}] ${message}\n`, () => {})
+
+  const activateCursorApp = (fallback = () => {}) => {
+    exec('osascript -e \"tell application \\\"Cursor\\\" to activate\"', err => {
+      if (err) {
+        log(`cursor activate failed: ${err.message || err}`)
+        fallback()
+      } else {
+        log('cursor activate ok')
+      }
+    })
+  }
+
+  const openCursorByCwd = (fallback = () => {}) => {
+    const cwd = session.cwd || ''
+    if (!cwd) {
+      fallback()
+      return
+    }
+    exec(`open -a "Cursor" "${cwd}"`, err => {
+      if (err) {
+        log(`open cursor by cwd failed: ${cwd} ${err.message || err}`)
+        fallback()
+      } else {
+        log(`open cursor by cwd ok: ${cwd}`)
+        activateCursorApp(fallback)
+      }
+    })
+  }
+
+  log(`focus cursor start id=${session.id} cwd=${session.cwd || ''} cursorPid=${session.cursorPid || ''}`)
+
+  const cursorPid = Number(session.cursorPid)
+  if (Number.isFinite(cursorPid) && cursorPid > 1) {
+    const script = `tell application "System Events" to set frontmost of (first process whose unix id is ${cursorPid}) to true`
+    exec(`osascript -e '${script}'`, err => {
+      if (err) {
+        log(`focus cursor pid failed: pid=${cursorPid} ${err.message || err}`)
+        openCursorByCwd(() => activateCursorApp(() => exec('open -a "Cursor"')))
+      } else {
+        log(`focus cursor pid ok: pid=${cursorPid}`)
+        activateCursorApp(() => exec('open -a "Cursor"'))
+      }
+    })
+    return
+  }
+
+  openCursorByCwd(() => activateCursorApp(() => exec('open -a "Cursor"')))
 }
 
 // --- IPC handlers ---
@@ -320,6 +429,15 @@ ipcMain.on('dismiss-session', (_, sessionId) => {
   removeSession(sessionId)
 })
 
+ipcMain.on('play-system-sound', (_, kind) => {
+  const settings = readSettings()
+  if (!getBooleanSetting(settings, 'soundEnabled', true)) return
+
+  const soundFile = SYSTEM_SOUND_FILES[kind]
+  if (!soundFile || !fs.existsSync(soundFile)) return
+  exec(`afplay ${JSON.stringify(soundFile)} >/dev/null 2>&1 &`)
+})
+
 ipcMain.on('resize-window', (_, height) => {
   if (!win) return
   const { width } = screen.getPrimaryDisplay().workAreaSize
@@ -334,17 +452,115 @@ ipcMain.on('reposition', (_, { x, y, width, height }) => {
 
 ipcMain.handle('get-sessions', () => Array.from(sessions.values()))
 
+// --- macOS menu ---
+function buildControlMenuItems() {
+  const hookStatus = getInstallStatus()
+  const settings = readSettings()
+  const autoLaunchEnabled = getBooleanSetting(settings, 'autoLaunchEnabled', true)
+  const soundEnabled = getBooleanSetting(settings, 'soundEnabled', true)
+  const hookSummary = lastHookInstallResult
+    ? Object.values(lastHookInstallResult.results)
+      .map(result => `${result.name}: ${result.ok ? '已安装' : '失败'}`)
+      .join('，')
+    : '首次启动会自动安装'
+
+  return [
+    {
+      label: '开机自启',
+      type: 'checkbox',
+      checked: autoLaunchEnabled,
+      click: menuItem => {
+        app.setLoginItemSettings({ openAtLogin: menuItem.checked })
+        patchSettings({ autoLaunchEnabled: menuItem.checked })
+        buildApplicationMenu()
+      },
+    },
+    {
+      label: '音效',
+      type: 'checkbox',
+      checked: soundEnabled,
+      click: menuItem => {
+        patchSettings({ soundEnabled: menuItem.checked })
+        buildApplicationMenu()
+      },
+    },
+    { type: 'separator' },
+    {
+      label: '支持的 App',
+      submenu: [
+        { label: `Claude Code ${hookStatus.claudeCode ? '✓ Hook 已安装' : 'Hook 未安装'}`, enabled: false },
+        { label: `Codex ${hookStatus.codex ? '✓ Hook 已安装' : 'Hook 未安装'}`, enabled: false },
+        { label: `Cursor ${hookStatus.cursor ? '✓ Hook 已安装' : 'Hook 未安装'}`, enabled: false },
+      ],
+    },
+    { label: `Hook 状态：${hookSummary}`, enabled: false },
+    {
+      label: '重新安装 Hooks',
+      click: () => {
+        installHooksAndRefreshMenu(true)
+      },
+    },
+    { type: 'separator' },
+    { label: '退出 AgentBoard', role: 'quit' },
+  ]
+}
+
+function ensureTrayMenu() {
+  if (!tray) {
+    const trayIcon = nativeImage.createFromPath(APP_ICON).resize({ width: 18, height: 18 })
+    tray = new Tray(trayIcon)
+    tray.setToolTip('AgentBoard')
+  }
+
+  tray.setContextMenu(Menu.buildFromTemplate(buildControlMenuItems()))
+}
+
+function buildApplicationMenu() {
+  const controlItems = buildControlMenuItems()
+
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: 'AgentBoard',
+      submenu: controlItems,
+    },
+  ]))
+
+  ensureTrayMenu()
+}
+
+function installHooksAndRefreshMenu(force = false) {
+  setImmediate(() => {
+    const settings = readSettings()
+    const hookStatus = getInstallStatus()
+    const installedForVersion = settings.hooksInstalledForVersion === app.getVersion()
+    if (!force && installedForVersion && hookStatus.claudeCode && hookStatus.codex && hookStatus.cursor) return
+
+    lastHookInstallResult = installAll()
+    if (lastHookInstallResult.ok) {
+      writeSettings({ ...settings, hooksInstalledForVersion: app.getVersion() })
+    }
+    buildApplicationMenu()
+  })
+}
+
 // --- App lifecycle ---
 app.dock.hide()
-app.setLoginItemSettings({ openAtLogin: true })
 
 app.whenReady().then(() => {
+  const settings = readSettings()
+  const autoLaunchEnabled = getBooleanSetting(settings, 'autoLaunchEnabled', true)
+  const soundEnabled = getBooleanSetting(settings, 'soundEnabled', true)
+  patchSettings({ autoLaunchEnabled, soundEnabled })
+  app.setLoginItemSettings({ openAtLogin: autoLaunchEnabled })
+
   if (process.platform === 'darwin' && fs.existsSync(APP_ICON)) {
     app.dock.setIcon(APP_ICON)
   }
+  buildApplicationMenu()
   loadSessions()
   startHttpServer()
   createWindow()
+  installHooksAndRefreshMenu()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

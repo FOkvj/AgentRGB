@@ -5,23 +5,21 @@ const os = require('os')
 const childProcess = require('child_process')
 const crypto = require('crypto')
 
+const APP_SUPPORT_DIR = path.join(os.homedir(), 'Library', 'Application Support', 'AgentBoard')
+const INSTALLED_HOOKS_DIR = path.join(APP_SUPPORT_DIR, 'hooks')
 const SETTINGS_PATH = path.join(os.homedir(), '.claude', 'settings.json')
-const HOOK_SCRIPT = path.join(os.homedir(), 'Documents', 'agent-board', 'hooks', 'claude-hook.sh')
+const CLAUDE_HOOK_SCRIPT = path.join(INSTALLED_HOOKS_DIR, 'claude-hook.sh')
 const CODEX_CONFIG_PATH = path.join(os.homedir(), '.codex', 'config.toml')
-const CODEX_HOOK_SCRIPT = path.join(os.homedir(), 'Documents', 'agent-board', 'hooks', 'codex-hook.sh')
+const CODEX_HOOK_SCRIPT = path.join(INSTALLED_HOOKS_DIR, 'codex-hook.sh')
 const CODEX_MARKETPLACE_PATH = path.join(os.homedir(), 'claude-plugins-user-marketplace')
 const CODEX_PLUGIN_NAME = 'agent-board'
 const CODEX_PLUGIN_SELECTOR = `${CODEX_PLUGIN_NAME}@user-local-official-plugins`
 const CODEX_PLUGIN_PATH = path.join(CODEX_MARKETPLACE_PATH, 'plugins', CODEX_PLUGIN_NAME)
-
-let settings = {}
-try {
-  settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
-} catch {
-  console.log('No existing settings.json, creating new one')
-}
-
-if (!settings.hooks) settings.hooks = {}
+const CURSOR_HOME = path.join(os.homedir(), '.cursor')
+const CURSOR_HOOKS_DIR = path.join(CURSOR_HOME, 'hooks')
+const CURSOR_HOOKS_PATH = path.join(CURSOR_HOME, 'hooks.json')
+const CURSOR_HOOK_SCRIPT = path.join(CURSOR_HOOKS_DIR, 'cursor-hook.sh')
+const HOOKS_SOURCE_DIR = path.join(path.resolve(__dirname, '..'), 'hooks')
 
 const hookEvents = [
   'UserPromptSubmit',
@@ -30,67 +28,142 @@ const hookEvents = [
   'Stop',
 ]
 
-const hookCommand = { type: 'command', command: HOOK_SCRIPT }
-const hookEntry = { matcher: '', hooks: [hookCommand] }
+function installAll(options = {}) {
+  installHookScripts()
 
-function isAgentBoardHookEntry(entry) {
-  if (!entry || typeof entry !== 'object') return false
-  if (entry.command === HOOK_SCRIPT) return true
-  return Array.isArray(entry.hooks) && entry.hooks.some(h => h && h.command === HOOK_SCRIPT)
-}
+  const results = {
+    claudeCode: runInstaller('Claude Code', installClaudeHooks),
+    codex: runInstaller('Codex', () => installCodexHooks(options)),
+    cursor: runInstaller('Cursor', installCursorHooks),
+  }
 
-for (const event of hookEvents) {
-  const existingEntries = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : []
-  settings.hooks[event] = [
-    ...existingEntries.filter(entry => !isAgentBoardHookEntry(entry)),
-    hookEntry,
-  ]
-}
-
-// Remove any invalid events that may have been installed previously
-const validEvents = new Set(hookEvents)
-for (const event of Object.keys(settings.hooks)) {
-  if (!validEvents.has(event)) {
-    // Remove AgentBoard entries from invalid events
-    settings.hooks[event] = settings.hooks[event].filter(entry => !isAgentBoardHookEntry(entry))
-    if (settings.hooks[event].length === 0) delete settings.hooks[event]
+  return {
+    ok: results.claudeCode.ok && results.codex.ok && results.cursor.ok,
+    results,
   }
 }
 
-fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2))
-console.log('✓ AgentBoard hooks installed:', hookEvents.join(', '))
-console.log('  Hook script:', HOOK_SCRIPT)
+function runInstaller(name, install) {
+  try {
+    install()
+    return { ok: true, name }
+  } catch (error) {
+    return { ok: false, name, error: error.message }
+  }
+}
 
-installCodexHooks()
+function installHookScripts() {
+  fs.mkdirSync(INSTALLED_HOOKS_DIR, { recursive: true })
 
-function installCodexHooks() {
-  const startMarker = '# >>> AgentBoard Codex Hooks >>>'
-  const endMarker = '# <<< AgentBoard Codex Hooks <<<'
+  for (const script of ['claude-hook.sh', 'codex-hook.sh']) {
+    const source = path.join(HOOKS_SOURCE_DIR, script)
+    const target = path.join(INSTALLED_HOOKS_DIR, script)
+    fs.copyFileSync(source, target)
+    fs.chmodSync(target, 0o755)
+  }
+}
+
+function installCursorHooks() {
+  fs.mkdirSync(CURSOR_HOOKS_DIR, { recursive: true })
+
+  const source = path.join(HOOKS_SOURCE_DIR, 'cursor-hook.sh')
+  fs.copyFileSync(source, CURSOR_HOOK_SCRIPT)
+  fs.chmodSync(CURSOR_HOOK_SCRIPT, 0o755)
+
+  let hooksConfig = { version: 1, hooks: {} }
+  try {
+    hooksConfig = JSON.parse(fs.readFileSync(CURSOR_HOOKS_PATH, 'utf8'))
+  } catch {}
+
+  if (!hooksConfig || typeof hooksConfig !== 'object') hooksConfig = { version: 1, hooks: {} }
+  if (typeof hooksConfig.version !== 'number') hooksConfig.version = 1
+  if (!hooksConfig.hooks || typeof hooksConfig.hooks !== 'object') hooksConfig.hooks = {}
+
+  const cursorEvents = ['beforeSubmitPrompt', 'preToolUse', 'postToolUse', 'stop']
+  const hookEntry = { type: 'command', command: `bash ${JSON.stringify(CURSOR_HOOK_SCRIPT)}` }
+
+  for (const event of cursorEvents) {
+    const entries = Array.isArray(hooksConfig.hooks[event]) ? hooksConfig.hooks[event] : []
+    hooksConfig.hooks[event] = [
+      ...entries.filter(entry => !isAgentBoardCursorHookEntry(entry)),
+      hookEntry,
+    ]
+  }
+
+  fs.writeFileSync(CURSOR_HOOKS_PATH, JSON.stringify(hooksConfig, null, 2))
+}
+
+function installClaudeHooks() {
+  let settings = {}
+  try {
+    settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
+  } catch {}
+
+  if (!settings.hooks) settings.hooks = {}
+
+  const hookCommand = { type: 'command', command: `bash ${JSON.stringify(CLAUDE_HOOK_SCRIPT)}` }
+  const hookEntry = { matcher: '', hooks: [hookCommand] }
+
+  for (const event of hookEvents) {
+    const existingEntries = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : []
+    settings.hooks[event] = [
+      ...existingEntries.filter(entry => !isAgentBoardClaudeHookEntry(entry)),
+      hookEntry,
+    ]
+  }
+
+  const validEvents = new Set(hookEvents)
+  for (const event of Object.keys(settings.hooks)) {
+    if (!validEvents.has(event) && Array.isArray(settings.hooks[event])) {
+      settings.hooks[event] = settings.hooks[event].filter(entry => !isAgentBoardClaudeHookEntry(entry))
+      if (settings.hooks[event].length === 0) delete settings.hooks[event]
+    }
+  }
+
+  fs.mkdirSync(path.dirname(SETTINGS_PATH), { recursive: true })
+  fs.writeFileSync(SETTINGS_PATH, JSON.stringify(settings, null, 2))
+}
+
+function installCodexHooks(options = {}) {
   let config = ''
-
   try {
     config = fs.readFileSync(CODEX_CONFIG_PATH, 'utf8')
-  } catch {
-    console.log('No existing Codex config.toml, creating new one')
-  }
+  } catch {}
 
   const withoutOldBlock = config.replace(
-    new RegExp(`\\n?${escapeRegExp(startMarker)}[\\s\\S]*?${escapeRegExp(endMarker)}\\n?`, 'g'),
+    new RegExp(`\\n?${escapeRegExp('# >>> AgentBoard Codex Hooks >>>')}[\\s\\S]*?${escapeRegExp('# <<< AgentBoard Codex Hooks <<<')}\\n?`, 'g'),
     '\n'
   ).trimEnd()
   const withoutOldDirectHooks = removeLegacyCodexHooks(withoutOldBlock)
 
   fs.mkdirSync(path.dirname(CODEX_CONFIG_PATH), { recursive: true })
   fs.writeFileSync(CODEX_CONFIG_PATH, `${withoutOldDirectHooks.trimEnd()}\n`)
-  fs.chmodSync(CODEX_HOOK_SCRIPT, 0o755)
 
   installCodexPluginFiles()
-  childProcess.execFileSync('codex', ['plugin', 'add', CODEX_PLUGIN_SELECTOR], { stdio: 'inherit' })
+  childProcess.execFileSync(resolveExecutable('codex'), ['plugin', 'add', CODEX_PLUGIN_SELECTOR], {
+    stdio: options.verbose ? 'inherit' : 'pipe',
+    timeout: 15000,
+  })
   trustCodexPluginHooks()
+}
 
-  console.log('✓ AgentBoard Codex hooks installed:', hookEvents.join(', '))
-  console.log('  Codex plugin:', CODEX_PLUGIN_SELECTOR)
-  console.log('  Plugin path:', CODEX_PLUGIN_PATH)
+function resolveExecutable(name) {
+  const searchDirs = [
+    ...String(process.env.PATH || '').split(path.delimiter),
+    '/opt/homebrew/bin',
+    '/usr/local/bin',
+    path.join(os.homedir(), '.local', 'bin'),
+  ].filter(Boolean)
+
+  for (const dir of searchDirs) {
+    const candidate = path.join(dir, name)
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK)
+      return candidate
+    } catch {}
+  }
+
+  return name
 }
 
 function installCodexPluginFiles() {
@@ -140,6 +213,52 @@ function installCodexPluginFiles() {
   fs.writeFileSync(marketplacePath, JSON.stringify(marketplace, null, 2))
 }
 
+function getInstallStatus() {
+  return {
+    claudeCode: isClaudeHookInstalled(),
+    codex: isCodexHookInstalled(),
+    cursor: isCursorHookInstalled(),
+  }
+}
+
+function isClaudeHookInstalled() {
+  try {
+    const settings = JSON.parse(fs.readFileSync(SETTINGS_PATH, 'utf8'))
+    return hookEvents.every(event => {
+      const entries = Array.isArray(settings.hooks?.[event]) ? settings.hooks[event] : []
+      return entries.some(entry => entryCommands(entry).some(isAgentBoardClaudeCommand))
+    })
+  } catch {
+    return false
+  }
+}
+
+function isCodexHookInstalled() {
+  try {
+    const hooksJson = path.join(CODEX_PLUGIN_PATH, 'hooks', 'hooks.json')
+    const pluginScript = path.join(CODEX_PLUGIN_PATH, 'hooks', 'codex-hook.sh')
+    const config = fs.readFileSync(CODEX_CONFIG_PATH, 'utf8')
+    return fs.existsSync(hooksJson) &&
+      fs.existsSync(pluginScript) &&
+      hookEvents.every(event => config.includes(`${CODEX_PLUGIN_SELECTOR}:hooks/hooks.json:${hookEventStateKey(event)}:0:0`))
+  } catch {
+    return false
+  }
+}
+
+function isCursorHookInstalled() {
+  try {
+    const hooksConfig = JSON.parse(fs.readFileSync(CURSOR_HOOKS_PATH, 'utf8'))
+    const events = ['beforeSubmitPrompt', 'preToolUse', 'postToolUse', 'stop']
+    return fs.existsSync(CURSOR_HOOK_SCRIPT) && events.every(event => {
+      const entries = Array.isArray(hooksConfig.hooks?.[event]) ? hooksConfig.hooks[event] : []
+      return entries.some(entry => entryCommands(entry).some(isAgentBoardCursorCommand))
+    })
+  } catch {
+    return false
+  }
+}
+
 function trustCodexPluginHooks() {
   let config = ''
   try {
@@ -155,6 +274,38 @@ function trustCodexPluginHooks() {
     config = upsertTrustedHash(config, key, trustedHash)
   }
   fs.writeFileSync(CODEX_CONFIG_PATH, config.trimEnd() + '\n')
+}
+
+function isAgentBoardClaudeHookEntry(entry) {
+  return entryCommands(entry).some(isAgentBoardClaudeCommand)
+}
+
+function isAgentBoardCursorHookEntry(entry) {
+  return entryCommands(entry).some(isAgentBoardCursorCommand)
+}
+
+function entryCommands(entry) {
+  if (!entry || typeof entry !== 'object') return []
+  const commands = []
+  if (typeof entry.command === 'string') commands.push(entry.command)
+  if (Array.isArray(entry.hooks)) {
+    for (const hook of entry.hooks) {
+      if (hook && typeof hook.command === 'string') commands.push(hook.command)
+    }
+  }
+  return commands
+}
+
+function isAgentBoardClaudeCommand(command) {
+  return command === CLAUDE_HOOK_SCRIPT ||
+    command === `bash ${JSON.stringify(CLAUDE_HOOK_SCRIPT)}` ||
+    /agent[- ]?board|AgentBoard/.test(command) && command.includes('claude-hook.sh')
+}
+
+function isAgentBoardCursorCommand(command) {
+  return command === CURSOR_HOOK_SCRIPT ||
+    command === `bash ${JSON.stringify(CURSOR_HOOK_SCRIPT)}` ||
+    /agent[- ]?board|AgentBoard/.test(command) && command.includes('cursor-hook.sh')
 }
 
 function hookEventStateKey(event) {
@@ -240,7 +391,7 @@ function removeLegacyCodexHooks(config) {
       index += 1
     }
 
-    if (!block.join('\n').includes(CODEX_HOOK_SCRIPT)) {
+    if (!block.join('\n').match(/(agent[- ]?board|AgentBoard)[\s\S]*codex-hook\.sh/)) {
       nextLines.push(...block)
     }
   }
@@ -248,7 +399,30 @@ function removeLegacyCodexHooks(config) {
   return nextLines.join('\n').replace(/\n{3,}/g, '\n\n')
 }
 
-
 function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+module.exports = {
+  APP_SUPPORT_DIR,
+  INSTALLED_HOOKS_DIR,
+  CLAUDE_HOOK_SCRIPT,
+  CODEX_HOOK_SCRIPT,
+  CURSOR_HOOK_SCRIPT,
+  CODEX_PLUGIN_SELECTOR,
+  CODEX_PLUGIN_PATH,
+  getInstallStatus,
+  installAll,
+}
+
+if (require.main === module) {
+  const result = installAll({ verbose: true })
+  for (const [key, appResult] of Object.entries(result.results)) {
+    if (appResult.ok) {
+      console.log(`✓ ${appResult.name} hooks installed`)
+    } else {
+      console.error(`✗ ${appResult.name} hooks failed: ${appResult.error}`)
+    }
+  }
+  process.exit(result.ok ? 0 : 1)
 }

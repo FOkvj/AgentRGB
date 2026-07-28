@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('agentBoard', {
   },
   focusSession: (sessionId) => ipcRenderer.send('focus-session', sessionId),
   dismissSession: (sessionId) => ipcRenderer.send('dismiss-session', sessionId),
+  playSystemSound: (kind) => ipcRenderer.send('play-system-sound', kind),
   resizeWindow: (height) => ipcRenderer.send('resize-window', height),
   reposition: (bounds) => ipcRenderer.send('reposition', bounds),
 })

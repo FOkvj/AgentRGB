@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
-from PIL import Image, ImageDraw, ImageFilter
+from PIL import Image, ImageDraw
 import subprocess
 import shutil
 
@@ -19,48 +19,22 @@ ICONSET.mkdir()
 img = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
 draw = ImageDraw.Draw(img)
 
-# Rounded-square background with a vivid vertical gradient.
+# White rounded-square background.
 corner = 224
-for y in range(SIZE):
-    t = y / (SIZE - 1)
-    r = int(22 + (8 - 22) * t)
-    g = int(35 + (119 - 35) * t)
-    b = int(70 + (146 - 70) * t)
-    draw.line([(0, y), (SIZE, y)], fill=(r, g, b, 255))
-mask = Image.new('L', (SIZE, SIZE), 0)
-ImageDraw.Draw(mask).rounded_rectangle((0, 0, SIZE, SIZE), radius=corner, fill=255)
-img.putalpha(mask)
+draw.rounded_rectangle((0, 0, SIZE, SIZE), radius=corner, fill=(255, 255, 255, 255))
 
-# Subtle top glow.
-glow = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-glow_draw = ImageDraw.Draw(glow)
-glow_draw.ellipse((-160, -250, 1180, 720), fill=(86, 203, 255, 72))
-glow = glow.filter(ImageFilter.GaussianBlur(36))
-img = Image.alpha_composite(img, glow)
-
-# Floating board pill.
-pill_shadow = Image.new('RGBA', (SIZE, SIZE), (0, 0, 0, 0))
-shadow_draw = ImageDraw.Draw(pill_shadow)
-shadow_draw.rounded_rectangle((202, 455, 822, 592), radius=68, fill=(0, 0, 0, 88))
-pill_shadow = pill_shadow.filter(ImageFilter.GaussianBlur(24))
-img = Image.alpha_composite(img, pill_shadow)
-
-draw = ImageDraw.Draw(img)
-draw.rounded_rectangle((184, 426, 840, 560), radius=67, fill=(236, 248, 255, 245))
-draw.rounded_rectangle((204, 446, 820, 540), radius=47, fill=(15, 31, 58, 245))
-
-# Agent/session dots, matching board status colors.
+# Three minimal status dots.
+dot_y = SIZE // 2
+spacing = 220
+radius = 72
+center_x = SIZE // 2
 dots = [
-    (316, 493, (34, 211, 238, 255)),
-    (512, 493, (250, 204, 21, 255)),
-    (708, 493, (34, 197, 94, 255)),
+    (center_x - spacing, dot_y, (255, 196, 0, 255)),
+    (center_x, dot_y, (255, 59, 48, 255)),
+    (center_x + spacing, dot_y, (50, 215, 75, 255)),
 ]
 for x, y, color in dots:
-    draw.ellipse((x - 42, y - 42, x + 42, y + 42), fill=color)
-    draw.ellipse((x - 18, y - 18, x + 10, y + 10), fill=(255, 255, 255, 88))
-
-# Small connection arc to suggest an agent board.
-draw.arc((290, 300, 734, 748), start=210, end=330, fill=(148, 232, 255, 190), width=28)
+    draw.ellipse((x - radius, y - radius, x + radius, y + radius), fill=color)
 
 img.save(PNG)
 

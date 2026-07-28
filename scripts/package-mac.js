@@ -29,7 +29,7 @@ fs.rmSync(appDir, { recursive: true, force: true })
 fs.rmSync(path.join(resourcesDir, 'default_app.asar'), { force: true })
 fs.mkdirSync(appDir, { recursive: true })
 
-for (const item of ['main.js', 'preload.js', 'renderer', 'hooks', 'assets']) {
+for (const item of ['main.js', 'preload.js', 'renderer', 'hooks', 'assets', 'scripts']) {
   fs.cpSync(path.join(root, item), path.join(appDir, item), { recursive: true })
 }
 fs.copyFileSync(iconFile, path.join(resourcesDir, 'AgentBoard.icns'))

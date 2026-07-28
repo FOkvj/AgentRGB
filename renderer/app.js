@@ -9,9 +9,19 @@ let collapseTimer = null
 let expandTimer = null
 let autoCollapseTimer = null
 
+function playStatusSound(kind) {
+  window.agentBoard.playSystemSound(kind)
+}
+
 // --- Render sessions ---
 function render(sessions) {
-  const statusChanged = hasStatusChange(currentSessions, sessions)
+  const transitions = detectStatusTransitions(currentSessions, sessions)
+  const statusChanged = transitions.changed
+
+  if (transitions.becameRunning) playStatusSound('yellow')
+  if (transitions.becameWaiting) playStatusSound('red')
+  if (transitions.becameCompleted) playStatusSound('green')
+
   currentSessions = sessions
   renderCollapsedDots(sessions)
   container.classList.toggle('scrollable', sessions.length > 6)
@@ -68,9 +78,27 @@ function render(sessions) {
   else if (!collapsed && sessions.length > 0) scheduleAutoCollapse()
 }
 
-function hasStatusChange(previousSessions, nextSessions) {
+function detectStatusTransitions(previousSessions, nextSessions) {
   const previousStatusById = new Map(previousSessions.map((s) => [s.id, s.status]))
-  return nextSessions.some((s) => previousStatusById.has(s.id) && previousStatusById.get(s.id) !== s.status)
+  let changed = false
+  let becameRunning = false
+  let becameWaiting = false
+  let becameCompleted = false
+
+  for (const session of nextSessions) {
+    if (!previousStatusById.has(session.id)) {
+      if (session.status === 'running') becameRunning = true
+      continue
+    }
+    const previousStatus = previousStatusById.get(session.id)
+    if (previousStatus === session.status) continue
+    changed = true
+    if (session.status === 'running') becameRunning = true
+    if (session.status === 'waiting') becameWaiting = true
+    if (session.status === 'completed') becameCompleted = true
+  }
+
+  return { changed, becameRunning, becameWaiting, becameCompleted }
 }
 
 function revealForStatusChange() {
