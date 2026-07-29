@@ -719,6 +719,28 @@ function focusCursorWindow(session) {
 
   log(`focus cursor start id=${session.id} cwd=${session.cwd || ''} cursorPid=${session.cursorPid || ''}`)
 
+  if (session.cwd) {
+    openCursorByCwd(() => {
+      const cursorPidFromSession = Number(session.cursorPid)
+      if (Number.isFinite(cursorPidFromSession) && cursorPidFromSession > 1) {
+        const script = `tell application "System Events" to set frontmost of (first process whose unix id is ${cursorPidFromSession}) to true`
+        exec(`osascript -e '${script}'`, err => {
+          if (err) {
+            log(`focus cursor pid failed after cwd open: pid=${cursorPidFromSession} ${err.message || err}`)
+            activateCursorApp(() => exec('open -a "Cursor"'))
+          } else {
+            log(`focus cursor pid ok after cwd open: pid=${cursorPidFromSession}`)
+            activateCursorApp(() => exec('open -a "Cursor"'))
+          }
+        })
+        return
+      }
+
+      activateCursorApp(() => exec('open -a "Cursor"'))
+    })
+    return
+  }
+
   const cursorPid = Number(session.cursorPid)
   if (Number.isFinite(cursorPid) && cursorPid > 1) {
     const script = `tell application "System Events" to set frontmost of (first process whose unix id is ${cursorPid}) to true`
