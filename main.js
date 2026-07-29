@@ -55,20 +55,39 @@ function patchSettings(patch) {
 function listRecentSessions() {
   const settings = readSettings()
   const recents = Array.isArray(settings.recentSessions) ? settings.recentSessions : []
-  return recents
+  const normalized = recents
     .filter(item => item && typeof item.id === 'string')
+    .map(item => ({
+      ...item,
+      id: normalizeSessionId(item.id),
+      client: normalizeClient(item.client),
+    }))
+    .filter(item => item.id)
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
+
+  const seen = new Set()
+  const deduped = []
+  for (const item of normalized) {
+    const key = recentSessionKey(item)
+    if (seen.has(key)) continue
+    seen.add(key)
+    deduped.push(item)
+  }
+
+  return deduped
 }
 
 function recordRecentSession(session) {
-  if (!session || !session.id) return
+  if (!session) return
+  const sessionId = normalizeSessionId(session.id)
+  if (!sessionId) return
   const settings = readSettings()
   const recents = Array.isArray(settings.recentSessions) ? settings.recentSessions : []
   const nextSession = {
-    id: session.id,
+    id: sessionId,
     label: session.label,
     cwd: session.cwd,
-    client: session.client,
+    client: normalizeClient(session.client),
     sourceType: session.sourceType,
     status: session.status,
     updatedAt: Number(session.updatedAt || Date.now()),
@@ -80,7 +99,8 @@ function recordRecentSession(session) {
     cursorName: session.cursorName,
   }
 
-  const deduped = [nextSession, ...recents.filter(item => item && item.id !== session.id)]
+  const nextKey = recentSessionKey(nextSession)
+  const deduped = [nextSession, ...recents.filter(item => item && recentSessionKey(item) !== nextKey)]
   settings.recentSessions = deduped
     .sort((a, b) => Number(b.updatedAt || 0) - Number(a.updatedAt || 0))
     .slice(0, MAX_RECENT_SESSIONS)
@@ -89,11 +109,23 @@ function recordRecentSession(session) {
 }
 
 function clientName(client = '') {
-  const normalized = String(client || '').toLowerCase()
+  const normalized = normalizeClient(client)
   if (normalized === 'codex') return 'Codex'
   if (normalized === 'cursor') return 'Cursor'
   if (normalized === 'claude') return 'Claude'
   return normalized ? normalized[0].toUpperCase() + normalized.slice(1) : 'Unknown'
+}
+
+function normalizeClient(client = '') {
+  return String(client || '').trim().toLowerCase()
+}
+
+function normalizeSessionId(sessionId = '') {
+  return String(sessionId || '').trim()
+}
+
+function recentSessionKey(session = {}) {
+  return `${normalizeClient(session.client)}::${normalizeSessionId(session.id)}`
 }
 
 function formatRecentSessionLabel(session) {
@@ -512,11 +544,12 @@ function handleHookEvent(event) {
     cursor_name,
   } = event
 
-  if (!session_id) return
+  const normalizedSessionId = normalizeSessionId(session_id)
+  if (!normalizedSessionId) return
 
   const eventName = normalizeHookEventName(hook_event_name || hook_event?.event_type)
-  const label = event_label || (cwd ? path.basename(cwd) : session_id.slice(0, 8))
-  const normalizedClient = client || 'claude'
+  const label = event_label || (cwd ? path.basename(cwd) : normalizedSessionId.slice(0, 8))
+  const normalizedClient = normalizeClient(client || 'claude')
 
   const sessionPatch = {
     label,
@@ -541,29 +574,29 @@ function handleHookEvent(event) {
 
   // A new user prompt means this session is active again, even if it had completed.
   if (eventName === 'UserPromptSubmit') {
-    upsertSession(session_id, { ...sessionPatch, status: 'running' })
+    upsertSession(normalizedSessionId, { ...sessionPatch, status: 'running' })
     return
   }
 
   // Only update state if session already exists (was created by UserPromptSubmit)
-  if (!sessions.has(session_id)) return
+  if (!sessions.has(normalizedSessionId)) return
 
   if (eventName === 'Stop') {
-    upsertSession(session_id, { ...sessionPatch, status: 'completed' })
+    upsertSession(normalizedSessionId, { ...sessionPatch, status: 'completed' })
     return
   }
 
   if (eventName === 'PreToolUse') {
     if (isWaitingTool(tool_name)) {
-      upsertSession(session_id, { ...sessionPatch, status: 'waiting' })
+      upsertSession(normalizedSessionId, { ...sessionPatch, status: 'waiting' })
     } else {
-      upsertSession(session_id, { ...sessionPatch, status: 'running' })
+      upsertSession(normalizedSessionId, { ...sessionPatch, status: 'running' })
     }
     return
   }
 
   if (eventName === 'PostToolUse') {
-    upsertSession(session_id, { ...sessionPatch, status: 'running' })
+    upsertSession(normalizedSessionId, { ...sessionPatch, status: 'running' })
   }
 }
 
